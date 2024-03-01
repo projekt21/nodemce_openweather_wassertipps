@@ -35,18 +35,6 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
-//const char *ssid     = "nirvana.net";
-//const char *password = "5882721161769666";
-//char ssid[32];
-//char possword[32];
-//char *ssid = "nirvana.net";
-//char *password = "5882721161769666";
-
-//char ssid[32] = ""; //     = "nirvana.net";
-//char password[32] = ""; // = "5882721161769666";
-//String ssid = "nirvana.net";
-//String password = "5882721161769666";
-
 const long utcOffsetInSeconds = 3600;
 
 String weekDays[7]={"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
@@ -66,8 +54,6 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 #define ST77XX_LIGHTBLUE 0x52bf    // https://rgbcolorpicker.com/565
 
 // OpenWeather API Details, replace x's with your API key
-//String api_key = "4c9431d7972d708f48b29d6e893ea2d6"; // Obtain this from your OpenWeather account
-//String api_key = "56eb1827cf56166afbae2f6e98743d07";
 String eapi;
 String elat;
 String elng;
