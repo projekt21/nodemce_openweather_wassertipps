@@ -31,17 +31,17 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 
 // ntp
-#include <NTPClient.h>
+//#include <NTPClient.h>
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
+//#include <WiFiUdp.h>
 
-const long utcOffsetInSeconds = 3600;
+//const long utcOffsetInSeconds = 3600 * 2;
 
 String weekDays[7]={"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
 
 // Define NTP Client to get time
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+//WiFiUDP ntpUDP;
+//NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 // openweathermap
 #include <WiFiClientSecure.h>
@@ -51,17 +51,8 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 #define MAX_HOURS 8 // edit /libraries/OpenWeather/User_Setup.h
 #define MAX_DAYS 6 // edit /libraries/OpenWeather/User_Setup.h
 
-#define ST77XX_LIGHTBLUE 0x52bf    // https://rgbcolorpicker.com/565
-
-// OpenWeather API Details, replace x's with your API key
-String eapi;
-String elat;
-String elng;
-
-
-// Set both your longitude and latitude to at least 4 decimal places
-//String latitude =  "49.878708"; // 90.0000 to -90.0000 negative for Southern hemisphere
-//String longitude = "8.646927"; // 180.000 to -180.000 negative for West
+#define ST77XX_LIGHTBLUE 0x5571    // https://rgbcolorpicker.com/565
+#define ST77XX_GREENBLUE 0xc7e9
 
 String units = "metric";  // or "imperial"
 String language = "de";   // See notes tab
@@ -87,6 +78,32 @@ ESP8266WebServer server(80);
 
 #include <EEPROM.h>
 
+#include <time.h>   
+// #include <TZ.h>
+// #define MYTZ TZ_Europe_Berlin
+// configTime(MYTZ, "pool.ntp.org");
+#define MY_NTP_SERVER "pool.ntp.org"           
+#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"   
+time_t now; // this are the seconds since Epoch (1970) - UTC
+tm tm;      // the structure tm holds time information in a more convenient way
+
+
+// Wi-Fi connection parameters.
+// It will be read from the flash during setup.
+struct WifiConf {
+  char ssid[32];
+  char password[64];
+  char api[36];
+  char lat[10];
+  char lng[10];
+ 
+  // Make sure that there is a 0 
+  // that terminatnes the c string
+  // if memory is not initalized yet.
+  char cstr_terminator = 0; // makse sure
+};
+WifiConf wifiConf;
+
 #include <ArduinoJson.h>
 JsonDocument doc;
 
@@ -105,14 +122,10 @@ void setup(void) {
   EEPROM.begin(512);
 
   delay(100);
-  Serial.println();
-  Serial.println();
   Serial.println("Startup");
 
   tft.initR (INITR_BLACKTAB); 
   tft.fillScreen (ST77XX_BLACK);
-
-//setupAP(); // fixme
 
   tft.drawBitmap(0, 0, open_icon, 128, 59, ST7735_ORANGE);
 
@@ -121,62 +134,23 @@ void setup(void) {
   tft.setTextSize (1);
 
   // read eeprom for ssid and pass
-  Serial.println("Reading EEPROM ssid");
-  String esid;
-  for (int i = 0; i < 32; ++i) esid += char(EEPROM.read(i));
-  Serial.print("SSID: ");
-  //Serial.println(esid);
-  Serial.println(esid.c_str());
+  readWifiConf();
 
-  Serial.println("Reading EEPROM pass");
-  String epass = "";
-  for (int i = 32; i < 96; ++i) epass += char(EEPROM.read(i));
-  Serial.print("PASS: ");
-  //Serial.println(epass);  
-  Serial.println(epass.c_str()); 
+  configTime(MY_TZ, MY_NTP_SERVER); // --> Here is the IMPORTANT ONE LINER needed in your sketch!
 
-  Serial.println("Reading EEPROM api");
-  String eapi = "";
-  for (int i = 96; i < 128; ++i) eapi += char(EEPROM.read(i));
-  Serial.print("API: ");
-  //Serial.println(eapi);  
-  Serial.println(eapi.c_str()); 
-
-  Serial.println("Reading EEPROM lat");
-  String elat = "";
-  for (int i = 128; i < 138; ++i) elat += char(EEPROM.read(i));
-  Serial.print("LAT: ");
-  //Serial.println(eapi);  
-  Serial.println(elat.c_str()); 
-
-  Serial.println("Reading EEPROM lng");
-  String elng = "";
-  for (int i = 138; i < 148; ++i) elng += char(EEPROM.read(i));
-  Serial.print("LNG: ");
-  //Serial.println(eapi);  
-  Serial.println(elng.c_str()); 
-
-  //const char *c = esid.c_str();
-
-  if ( strlen(esid.c_str()) == 0 || strlen(eapi.c_str()) == 0 || strlen(elat.c_str()) == 0 || strlen(elng.c_str()) == 0 ) {  // fixme
-  
-    //delay(100);
-
+  if ( wifiConf.ssid == 0 || wifiConf.password == 0 || wifiConf.lat == 0 || wifiConf.lng == 0 ) {  // fixme
+    Serial.println("-->ssid low");
     setupAP();
     //return;
   }
 
   tft.setTextWrap (true);
   tft.print ("Wifi: ");
-  tft.println (esid.c_str());
+  tft.println (wifiConf.ssid);
 
-  WiFi.begin(esid.c_str(), epass.c_str());
-  //WiFi.begin("xxx", "yyy");
+  WiFi.begin(wifiConf.ssid, wifiConf.password);
+  Serial.println("-->wifi begin");
 
-  //Serial.println(ssid);
-  //Serial.println(password);
-
-  //int i;
   unsigned long currentMillis = millis();
   while ( WiFi.status() != WL_CONNECTED ) {
   
@@ -186,14 +160,7 @@ void setup(void) {
     delay ( 250 );
 
     if (digitalRead(BUTTON_PIN) == HIGH) { // button pressed
-      
-      //Serial.println("-->button low");
-
-      //EEPROM.begin(512);
-      //Serial.println("clearing eeprom");
-      //for (int i = 0; i < 96; ++i) { EEPROM.write(i, 0); }
-      //EEPROM.commit();
-
+      Serial.println("-->button low");
       setupAP();
     }
 
@@ -209,29 +176,39 @@ void setup(void) {
 
   digitalWrite(LED_BUILTIN, HIGH);
   
-  timeClient.begin();
-  timeClient.update();
+  //timeClient.begin();
+  //timeClient.update();
 
   // openweathermap
-  ow.getForecast(current, hourly, daily, eapi.c_str(), elat.c_str(), elng.c_str(), units, language);
+  ow.getForecast(current, hourly, daily, wifiConf.api, wifiConf.lat, wifiConf.lng, units, language);
   //ow.getForecast(forecast, api_key, latitude, longitude, units, language);
   tft.print (")");
 
   // wassertipps
-  wassertipps(elat.c_str(), elng.c_str());
+  wassertipps(wifiConf.lat, wifiConf.lng);
   tft.print (")");
-  //printCurrentWeather();
-  //tftWeather();
-  //tft.fillScreen (ST77XX_BLACK);
   
   tftWeatherMore();
-  //printCurrentWeather();
-  //tft.print (")");
   
   Serial.println("OK");
-  // Serial.println(ssid);
+}
 
-  //tft.initR (INITR_BLACKTAB);
+void readWifiConf() {
+  // Read wifi conf from flash
+  for (int i=0; i<sizeof(wifiConf); i++) {
+    ((char *)(&wifiConf))[i] = char(EEPROM.read(i));
+  }
+  // Make sure that there is a 0 
+  // that terminatnes the c string
+  // if memory is not initalized yet.
+  wifiConf.cstr_terminator = 0;
+}
+
+void writeWifiConf() {
+  for (int i=0; i<sizeof(wifiConf); i++) {
+    EEPROM.write(i, ((char *)(&wifiConf))[i]);
+  }
+  EEPROM.commit();
 }
 
 void wassertipps(String latitude, String longitude) {
@@ -239,6 +216,44 @@ void wassertipps(String latitude, String longitude) {
   String url = "https://www.wassertipps.de/cgi-bin/server_api2.pl?json_data={\"lon\":" + longitude + ",\"lat\":" + latitude + "}";
 
   //Serial.println(url);
+
+
+//https://randomnerdtutorials.com/esp32-http-get-post-arduino/
+// String httpGETRequest(const char* url) {
+//   HTTPClient http;
+
+//   // Your IP address with path or Domain name with URL path 
+//   http.begin(url);
+//   http.begin(client, url);
+
+//   // If you need Node-RED/server authentication, insert user and password below
+//   //http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
+
+
+//   // Send HTTP POST request
+//   int httpResponseCode = http.GET();
+
+//   String payload = "{}"; 
+
+//   if (httpResponseCode>0) {
+//     Serial.print("HTTP Response code: ");
+//     Serial.println(httpResponseCode);
+//     payload = http.getString();
+//   }
+//   else {
+//     Serial.print("Error code: ");
+//     Serial.println(httpResponseCode);
+//   }
+//   // Free resources
+//   http.end();
+
+//   return payload;
+// }
+
+
+
+
+
 
   //uint32_t dt = millis();
   
@@ -337,18 +352,6 @@ void wassertipps(String latitude, String longitude) {
             return;
           }
 
-          //Serial.println("currentLine: ");
-          //Serial.println(currentLine);
-          // Serial.print("zip: ");
-          // Serial.println(doc[0]["zip"].as<const char*>());
-          // Serial.print("city: ");
-          // Serial.println(doc[0]["city"].as<const char*>());
-          // Serial.print("wasserhaerte: ");
-          // Serial.print(doc[0]["wasserhaerte_min"].as<const char*>());
-          // Serial.print(" / ");
-          // Serial.print(doc[0]["wasserhaerte_avg"].as<const char*>());
-          // Serial.print(" / ");
-          // Serial.println(doc[0]["wasserhaerte_max"].as<const char*>());
       }
     
     }
@@ -432,40 +435,23 @@ void setupAP () {
   generateQRCode(t, 68, 100, ST77XX_YELLOW);
 
   tft.setTextColor (ST77XX_GREEN);
-
   tft.print ("1. SSID: ");
   tft.println (ap_ssid);
-  // tft.println  ("");
-
+  
   if (strlen(ap_password) != 0) {
-    //tft.println  ("");
      tft.print ("   PASS: ");
      tft.println (ap_password);
-     //   tft.println  ("");
   }
 
   tft.setTextColor (ST77XX_YELLOW);
-
-
-  // tft.println  ("");
   tft.print ("2. http://"); http://
   tft.println (local_ip);
-  // tft.println  ("");
 
   tft.setTextColor (ST77XX_WHITE);
-
-  // tft.println  ("");
   tft.println ("3. Dein SSID/Passwort");
-  //tft.print ();
-  // tft.println  ("");
-
-  // tft.println  ("");
-  tft.println ("4. Reboot ");
-  // //tft.print ();
-  // tft.println  ("");
-
-
-
+  
+  //tft.println ("4. Reboot ");
+  
   while (1) server.handleClient();
 } 
 
@@ -477,17 +463,8 @@ void generateQRCode(String text, byte shiftX, byte shiftY, int color) {
   uint8_t qrcodeData[qrcode_getBufferSize(3)];
   qrcode_initText(&qrcode, qrcodeData, 3, 0, text.c_str());
 
-  // Clear the display
-  //display.clearDisplay();
-
   // Calculate the scale factor
   int scale = min(OLED_WIDTH / qrcode.size, OLED_HEIGHT / qrcode.size);
-  
-  // Calculate horizontal shift
-  //int shiftX = XXX; // + (OLED_WIDTH - qrcode.size*scale)/2;
-  
-  // Calculate horizontal shift
-  //int shiftY = YYY; //(OLED_HEIGHT - qrcode.size*scale)/2;
 
   // Draw the QR code on the display
   for (uint8_t y = 0; y < qrcode.size; y++) {
@@ -497,9 +474,6 @@ void generateQRCode(String text, byte shiftX, byte shiftY, int color) {
       }
     }
   }
-
-  // Update the display
-  //display.display();
 }
 
 ///////////////////////////////////////////////////////////
@@ -512,63 +486,32 @@ void handle_OnConnect() {
 }
 
 void handle_OnWifi() {
+  bool save = false;
 
-  String myssid =  server.arg("ssid");
-  String mypassword = server.arg("password");
-
-  String myapi =  server.arg("api"); 
-  String mylat =  server.arg("lat"); 
-  String mylng =  server.arg("lng"); 
-
-  EEPROM.begin(512);
-
-  Serial.println("clearing eeprom");
-  for (int i = 0; i < 148; ++i) { EEPROM.write(i, 0); }
-
-  Serial.println("writing eeprom ssid:");
-  for (int i = 0; i < myssid.length(); ++i)
-  {
-    EEPROM.write(i, myssid[i]);
-    Serial.print("Wrote: ");
-    Serial.println(myssid[i]); 
+  if (server.hasArg("ssid") && server.hasArg("password")) {
+    server.arg("ssid").toCharArray(wifiConf.ssid, sizeof(wifiConf.ssid));
+    server.arg("password").toCharArray(wifiConf.password, sizeof(wifiConf.password));
+    server.arg("api").toCharArray(wifiConf.api, sizeof(wifiConf.api));
+    server.arg("lat").toCharArray(wifiConf.lat, sizeof(wifiConf.lat));
+    server.arg("lng").toCharArray(wifiConf.lng, sizeof(wifiConf.lng));
+           
+    writeWifiConf();
+    save = true;
   }
-  Serial.println("writing eeprom pass:"); 
-  for (int i = 0; i < mypassword.length(); ++i)
-  {
-    EEPROM.write(32+i, mypassword[i]);
-    Serial.print("Wrote: ");
-    Serial.println(mypassword[i]); 
-  }
-  Serial.println("writing eeprom api:");
-  for (int i = 0; i < myapi.length(); ++i)
-  {
-    EEPROM.write(96+i, myapi[i]);
-    Serial.print("Wrote: ");
-    Serial.println(myapi[i]); 
-  }
-  Serial.println("writing eeprom lat:");
-  for (int i = 0; i < mylat.length(); ++i)
-  {
-    EEPROM.write(128+i, mylat[i]);
-    Serial.print("Wrote: ");
-    Serial.println(mylat[i]); 
-  }
-  Serial.println("writing eeprom lng:");
-  for (int i = 0; i < mylng.length(); ++i)
-  {
-    EEPROM.write(138+i, mylng[i]);
-    Serial.print("Wrote: ");
-    Serial.println(mylng[i]); 
-  }
-  EEPROM.commit();
 
   String s = MAIN_page;
 
-  Serial.println("Wifi: ");
-  Serial.println(myssid);
-  Serial.println(mypassword);
-
+  // Serial.println("Wifi: ");
+  // Serial.println(wifiConf.ssid);
+  // Serial.println(wifiConf.password);
+  //Serial.println(wifiConf.api);
+  
   server.send(200, "text/plain", "Success"); 
+  if (save) {
+    Serial.println("Wi-Fi conf saved. Rebooting...");
+    delay(1000);
+    ESP.restart();
+  }
 }
 
 void handle_NotFound(){
@@ -582,10 +525,10 @@ byte tft_stage = 1; // daily?
 
 void loop() {
 
-  int light = analogRead(PHOTO_PIN);
+  //int light = analogRead(PHOTO_PIN);
   //Serial.println("light: " + (String) light);
 
-  if (light < 100) { // fixme
+  if (analogRead(PHOTO_PIN) < 120) { // fixme
     digitalWrite(SLEEP_PIN, LOW); // 8 LEDA/BLK --> 3V3 oder D2 HIGH/LOW (display abschalten)
     //delay(200);
     return;
@@ -627,16 +570,7 @@ void loop() {
   //unsigned long currentMillis;
   if (millis() - currentMillis > 1000 * 60 * 15) {
     
-    //ow.getForecast(current, hourly, daily, api_key, latitude, longitude, units, language);
-    ow.getForecast(current, hourly, daily, eapi.c_str(), elat.c_str(), elng.c_str(), units, language);
-    // Serial.print ( "millis: " );
-    // Serial.print (millis());
-    // Serial.print ( "currentMillis: " );
-    // Serial.println (currentMillis);
-    
-    //if (tft_hourly == true) { tftWeatherMore(); }
-    //else { tftWeatherMoreDaily(); }
-    tft_hourly = true;
+    ow.getForecast(current, hourly, daily, wifiConf.api, wifiConf.lat, wifiConf.lng, units, language);
     tftWeatherMore();
 
     currentMillis = millis();
@@ -656,56 +590,77 @@ void loop() {
   // }
   
   //tft.fillScreen (ST77XX_BLACK);
-  timeClient.update();
+  //timeClient.update();
   
   tftDateTime();
-  //tftWeatherMore(); 
-  //tftWeather(); 
 
-  delay (1000);
+  delay (250);
 
 }
 
-//byte hour;
-
 void tftDateTime ()
 {
+  time(&now);
+  localtime_r(&now, &tm); 
   // ntp -> date/time
-  time_t epochTime = timeClient.getEpochTime();
-  struct tm *ptm = gmtime ((time_t *)&epochTime);
-  int monthDay = ptm->tm_mday;
-  int currentMonth = ptm->tm_mon+1;
-  int currentYear = ptm->tm_year+1900;
-
-  //hour = ptm->tm_hour;  // ganz oben 
-
-  String formattedDate = (monthDay < 10 ? "0" : "") + String(monthDay) + "." 
-                       + (currentMonth < 10 ? "0" : "") + String(currentMonth) + "." 
-                       + String(currentYear - 2000);
-  String formattedTime = timeClient.getFormattedTime();
-  String weekDay = weekDays[timeClient.getDay()];
-  //Serial.println(weekDay);
+  // time_t epochTime = timeClient.getEpochTime();
+  // struct tm *ptm = gmtime ((time_t *)&epochTime);
 
   tft.setCursor (0, 0);
   //tft.fillScreen (ST77XX_BLACK);
   tft.fillRect(0, 0, 59, 8, ST77XX_BLACK); // tip!
-  if (ptm->tm_hour == 0 && ptm->tm_min == 0 && ptm->tm_sec == 0) tft.fillRect(60, 0, 128, 8, ST77XX_BLACK); // tip!
-
+  if (tm.tm_hour == 0 && tm.tm_min == 0 && tm.tm_sec == 0) tft.fillRect(60, 0, 128, 8, ST77XX_BLACK); // tip!
 
   tft.setTextColor (ST77XX_WHITE);
   tft.setTextSize (1);
-   
-  tft.print (formattedTime);
+
+  // int monthDay = tm.tm_mday;
+  // int currentMonth = tm.tm_mon+1;
+  // int currentYear = tm.tm_year+1900;
+
+  // String formattedDate = (tm.tm_mday < 10 ? "0" : "") + String(tm.tm_mday) + "." 
+  //                      + (tm.tm_mon+1 < 10 ? "0" : "") + String(tm.tm_mon+1) + "." 
+  //                      + String(tm.tm_year+1900 - 2000);
+  //String formattedTime = timeClient.getFormattedTime();
+  // int hh = tm.tm_hour;
+  // int mm = tm.tm_min;
+  // int ss = tm.tm_sec;
+
+  // String formattedTime = (tm.tm_hour < 10 ? "0" : "") + String(tm.tm_hour) + ":" 
+  //                      + (tm.tm_min < 10 ? "0" : "") + String(tm.tm_min) + ":" 
+  //                      + (tm.tm_sec < 10 ? "0" : "") + String(tm.tm_sec);
+  
+  //String weekDay = weekDays[tm.tm_wday];
+
+  if (tm.tm_hour < 10) tft.print ("0");
+  tft.print (tm.tm_hour);
+  tft.print (":");
+  if (tm.tm_min < 10) tft.print ("0");
+  tft.print (tm.tm_min);
+  tft.print (":");
+  if (tm.tm_sec < 10) tft.print ("0");
+  tft.print (tm.tm_sec);
+
+  //tft.print (formattedTime);
   tft.setCursor (60, 0);
-  tft.print (weekDay);
+  tft.print (weekDays[tm.tm_wday]);
   tft.print (",");
   tft.setCursor (80, 0);
-  tft.println (formattedDate);
+  //tft.println (formattedDate);
+
+  if (tm.tm_mday < 10) tft.print ("0");
+  tft.print (tm.tm_mday);
+  tft.print (".");
+  if (tm.tm_mon+1 < 10) tft.print ("0");
+  tft.print (tm.tm_mon+1);
+  tft.print (".");
+  tft.print (tm.tm_year+1900 - 2000);
+
 }
 
 void tftWassertipps () 
 { 
-
+  // PLZ und Ort
   byte row = 14;
   tft.fillScreen (ST77XX_BLACK);
   tft.setTextColor (ST77XX_ORANGE);
@@ -717,10 +672,10 @@ void tftWassertipps ()
   tft.setCursor (0, row+10);
   tft.println (doc[0]["city"].as<const char*>());
 
-
+  // Wasserhaerte
   row = 32;
   tft.setCursor (0, row);
-  tft.setTextColor (ST77XX_YELLOW);
+  tft.setTextColor (ST77XX_LIGHTBLUE);
   tft.println();
   tft.println("Wasserh\x84rte:");
 
@@ -735,22 +690,18 @@ void tftWassertipps ()
 // \x9A = Ü 
 // \xF7 = grad
 
-
   float wasserhaerte_min = doc[0]["wasserhaerte_min"];
   float wasserhaerte_avg = doc[0]["wasserhaerte_avg"];
   float wasserhaerte_max = doc[0]["wasserhaerte_max"];
    
-  
-
-  //tft.drawFastHLine(0 + i * COL, row + 30 - 20 * ((hourly->temp[i] - imin) / (imax - imin)), COL, ST77XX_GREEN);
-  if (wasserhaerte_min > 0) tft.drawFastVLine(wasserhaerte_min * 128 / 22, row+20, 7, ST77XX_YELLOW);
-  if (wasserhaerte_max > 0) tft.drawFastVLine(wasserhaerte_max * 128 / 22, row+20, 7, ST77XX_YELLOW);
-  if (wasserhaerte_avg > 0) tft.drawFastVLine(wasserhaerte_avg * 128 / 22, row+20, 7, ST77XX_YELLOW);
+  if (wasserhaerte_min > 0) tft.drawFastVLine(wasserhaerte_min * 128 / 22, row+20, 7, ST77XX_LIGHTBLUE);
+  if (wasserhaerte_max > 0) tft.drawFastVLine(wasserhaerte_max * 128 / 22, row+20, 7, ST77XX_LIGHTBLUE);
+  if (wasserhaerte_avg > 0) tft.drawFastVLine(wasserhaerte_avg * 128 / 22, row+20, 7, ST77XX_LIGHTBLUE);
 
   if (wasserhaerte_min > 0 && wasserhaerte_max > 0) {
-    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 2, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_YELLOW);
-    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 3, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_YELLOW);
-    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 4, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_YELLOW);
+    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 2, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_LIGHTBLUE);
+    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 3, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_LIGHTBLUE);
+    tft.drawFastHLine(wasserhaerte_min * 128 / 22 + 1, row+20 + 4, (wasserhaerte_max - wasserhaerte_min) * 128 / 22, ST77XX_LIGHTBLUE);
   }
 
   tft.drawFastHLine(0, row+28, (8.4) * 128 / 22, ST77XX_GREEN);
@@ -772,15 +723,10 @@ void tftWassertipps ()
 //  8,5 - 14 °dH (1,5 - 2,5 mmol/l - mittel)
 //  über 14 °dH (> 2,5 mmol/l - hart)
 
-// Nitratwerte:
-//  0 - 10 mg/l
-//  10 - 25 mg/l
-//  25 - 50 mg/l
-
-
-row = 80;
+  // Nitrat
+  row = 80;
   tft.setCursor (0, row);
-  tft.setTextColor (ST77XX_GREEN);
+  tft.setTextColor (ST77XX_GREENBLUE);
   tft.println();
   tft.println("Nitrat:");
 
@@ -788,20 +734,15 @@ row = 80;
   float nitrat_avg = doc[0]["nitrat_avg"];
   float nitrat_max = doc[0]["nitrat_max"];
 
-  if (nitrat_min > 0) tft.drawFastVLine(nitrat_min * 128 / 50, row+20, 7, ST77XX_GREEN);
-  if (nitrat_max > 0) tft.drawFastVLine(nitrat_max * 128 / 50, row+20, 7, ST77XX_GREEN);
-  if (nitrat_avg > 0) tft.drawFastVLine(nitrat_avg * 128 / 50, row+20, 7, ST77XX_GREEN);
+  if (nitrat_min > 0) tft.drawFastVLine(nitrat_min * 128 / 50, row+20, 7, ST77XX_GREENBLUE);
+  if (nitrat_max > 0) tft.drawFastVLine(nitrat_max * 128 / 50, row+20, 7, ST77XX_GREENBLUE);
+  if (nitrat_avg > 0) tft.drawFastVLine(nitrat_avg * 128 / 50, row+20, 7, ST77XX_GREENBLUE);
 
   if (nitrat_min > 0 && nitrat_max > 0) {
-    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 2, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREEN);
-    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 3, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREEN);
-    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 4, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREEN);
+    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 2, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREENBLUE);
+    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 3, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREENBLUE);
+    tft.drawFastHLine(nitrat_min * 128 / 50 + 1, row+20 + 4, (nitrat_max - nitrat_min) * 128 / 50, ST77XX_GREENBLUE);
   }
-
-// Nitratwerte:
-//  0 - 10 mg/l
-//  10 - 25 mg/l
-//  25 - 50 mg/l
 
   tft.drawFastHLine(0, row+28, (10) * 128 / 50, ST77XX_GREEN);
   tft.drawFastHLine((10) * 128 / 50 + 1, row+28, (25 - 10) * 128 / 50 - 1, ST77XX_YELLOW);
@@ -816,21 +757,46 @@ row = 80;
   // tft.print(" ");
   // tft.write (247);  // grad
   tft.print(" mg/l");
+
+  // Nitratwerte:
+  //  0 - 10 mg/l
+  //  10 - 25 mg/l
+  //  25 - 50 mg/l
   
 }
 
 void tftWeatherMore () 
 { 
+  time(&now);
+  localtime_r(&now, &tm); 
+
+  // ntp -> date/time
+  // time_t epochTime = timeClient.getEpochTime();
+  // struct tm *ptm = gmtime ((time_t *)&epochTime);
+  // int monthDay = tm.tm_mday;
+  // int currentMonth = tm.tm_mon+1;
+  // int currentYear = tm.tm_year+1900;
+
+  // String formattedDate = (monthDay < 10 ? "0" : "") + String(monthDay) + "." 
+  //                      + (currentMonth < 10 ? "0" : "") + String(currentMonth) + "." 
+  //                      + String(currentYear - 2000);
+  //String formattedTime = timeClient.getFormattedTime();
+  // int hh = tm.tm_hour;
+  // int mm = tm.tm_min;
+  // int ss = tm.tm_sec;
+
   tft.fillScreen (ST77XX_BLACK);
 
   byte MAX; byte COL;
   if (tft_hourly == true) { 
     Serial.println("HOURLY----------"); 
+    tft_stage = 0;
     MAX = 8;
     COL = 16;
   } 
   else { 
     Serial.println("DIALY----------"); 
+    tft_stage = 1;
     MAX = 6;
     COL = 22;
   }
@@ -838,16 +804,6 @@ void tftWeatherMore ()
   byte row;
   row = 152;
   tft.fillRect(0, row, 128, 10, ST77XX_BLACK);
-
-  // time_t epochTime = timeClient.getEpochTime();
-  // struct tm *ptm = gmtime ((time_t *)&epochTime);
-  // int hour = ptm->tm_hour;
-
-  //String weekDay = weekDays[timeClient.getDay()];
-  //int currentMonth = ptm->tm_mon+1;
-  //int currentYear = ptm->tm_year+1900;
-
-  //hour = ptm->tm_hour;  // ganz oben 
   
   tft.setTextColor (ST77XX_WHITE);
 
@@ -856,8 +812,8 @@ void tftWeatherMore ()
     for (int i = 0; i < 8; i++) {
       //tft.setTextColor (ST77XX_WHITE);
       tft.setCursor (2 + i * COL, row);
-      if ((timeClient.getHours() + i) % 24 < 10) tft.print (" ");
-      tft.print ((timeClient.getHours() + i) % 24);
+      if ((tm.tm_hour + i) % 24 < 10) tft.print (" ");
+      tft.print ((tm.tm_hour + i) % 24);
     }
   } else { 
     // daily
@@ -865,7 +821,7 @@ void tftWeatherMore ()
       //tft.setTextColor (ST77XX_WHITE);
       tft.setCursor (4 + i * COL, row);
       //if ((timeClient.getDay() + i) % 7 < 10) tft.print (" ");
-      tft.print (weekDays[(timeClient.getDay() + i) % 7]);
+      tft.print (weekDays[(tm.tm_wday + i) % 7]);
     }
   }
   //Serial.println("1");
